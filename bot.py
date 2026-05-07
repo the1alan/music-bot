@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import os
 import re
 import traceback
@@ -39,7 +40,28 @@ FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
 COOKIES_FILE = Path(os.getenv("YTDLP_COOKIES_FILE", str(DATA_DIR / "cookies.txt")))
 
 
+def prepare_cookies_file() -> None:
+    cookies_b64 = os.getenv("YTDLP_COOKIES_B64")
+
+    if not cookies_b64:
+        return
+
+    if COOKIES_FILE.exists():
+        return
+
+    try:
+        COOKIES_FILE.parent.mkdir(parents=True, exist_ok=True)
+        cookies_text = base64.b64decode(cookies_b64).decode("utf-8")
+        COOKIES_FILE.write_text(cookies_text, encoding="utf-8")
+        os.chmod(COOKIES_FILE, 0o600)
+        print(f"Created yt-dlp cookies file from YTDLP_COOKIES_B64: {COOKIES_FILE}")
+    except Exception as e:
+        print("COOKIES SETUP ERROR:", repr(e))
+        traceback.print_exc()
+
+
 def build_ytdlp_opts(base_opts: dict) -> dict:
+    prepare_cookies_file()
     opts = dict(base_opts)
 
     if COOKIES_FILE.exists():
