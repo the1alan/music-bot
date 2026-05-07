@@ -1,5 +1,4 @@
 aiogram
 yt-dlp
 aiohttp
-imageio-ffmpeg
 python-dotenv
