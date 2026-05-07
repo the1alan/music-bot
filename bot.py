@@ -36,16 +36,29 @@ DOWNLOAD_DIR = DATA_DIR / "downloads"
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
+COOKIES_FILE = Path(os.getenv("YTDLP_COOKIES_FILE", str(DATA_DIR / "cookies.txt")))
 
 
-SEARCH_OPTS = {
+def build_ytdlp_opts(base_opts: dict) -> dict:
+    opts = dict(base_opts)
+
+    if COOKIES_FILE.exists():
+        opts["cookiefile"] = str(COOKIES_FILE)
+        print(f"Using yt-dlp cookies file: {COOKIES_FILE}")
+    else:
+        print(f"yt-dlp cookies file not found: {COOKIES_FILE}")
+
+    return opts
+
+
+SEARCH_OPTS_BASE = {
     "quiet": True,
     "extract_flat": True,
     "noplaylist": True,
 }
 
 
-DOWNLOAD_OPTS = {
+DOWNLOAD_OPTS_BASE = {
     "format": "bestaudio/best",
     "outtmpl": str(DOWNLOAD_DIR / "%(id)s.%(ext)s"),
     "quiet": False,
@@ -71,8 +84,9 @@ def is_url(text: str) -> bool:
 async def search_all(query: str, limit: int = 10) -> list[dict]:
     def _search():
         results = []
+        search_opts = build_ytdlp_opts(SEARCH_OPTS_BASE)
 
-        with yt_dlp.YoutubeDL(SEARCH_OPTS) as ydl:
+        with yt_dlp.YoutubeDL(search_opts) as ydl:
             try:
                 yt_info = ydl.extract_info(f"ytsearch{limit}:{query}", download=False)
                 for entry in yt_info.get("entries", []) or []:
@@ -117,7 +131,9 @@ async def search_all(query: str, limit: int = 10) -> list[dict]:
 async def download_audio(url: str):
     def _download():
         try:
-            with yt_dlp.YoutubeDL(DOWNLOAD_OPTS) as ydl:
+            download_opts = build_ytdlp_opts(DOWNLOAD_OPTS_BASE)
+
+            with yt_dlp.YoutubeDL(download_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
 
             if not info:
