@@ -19,8 +19,6 @@ from aiohttp import web
 from dotenv import load_dotenv
 
 import yt_dlp
-import imageio_ffmpeg
-
 
 load_dotenv()
 
@@ -38,19 +36,17 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "/app/data"))
 DOWNLOAD_DIR = DATA_DIR / "downloads"
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-FFMPEG_PATH = os.getenv("FFMPEG_PATH") or imageio_ffmpeg.get_ffmpeg_exe()
+# Используем ffmpeg из PATH, если не указан явно
+FFMPEG_PATH = os.getenv("FFMPEG_PATH", "ffmpeg")
 COOKIES_FILE = Path(os.getenv("YTDLP_COOKIES_FILE", str(DATA_DIR / "cookies.txt")))
 
 
 def prepare_cookies_file() -> None:
     cookies_b64 = os.getenv("YTDLP_COOKIES_B64")
-
     if not cookies_b64:
         return
-
     if COOKIES_FILE.exists():
         return
-
     try:
         COOKIES_FILE.parent.mkdir(parents=True, exist_ok=True)
         cookies_text = base64.b64decode(cookies_b64).decode("utf-8")
@@ -67,7 +63,6 @@ def cookies_status_text() -> str:
     cookies_b64 = os.getenv("YTDLP_COOKIES_B64")
     exists = COOKIES_FILE.exists()
     size = COOKIES_FILE.stat().st_size if exists else 0
-
     return (
         f"DATA_DIR: {DATA_DIR}\n"
         f"DOWNLOAD_DIR: {DOWNLOAD_DIR}\n"
@@ -83,13 +78,11 @@ def cookies_status_text() -> str:
 def build_ytdlp_opts(base_opts: dict) -> dict:
     prepare_cookies_file()
     opts = dict(base_opts)
-
     if COOKIES_FILE.exists():
         opts["cookiefile"] = str(COOKIES_FILE)
         print(f"Using yt-dlp cookies file: {COOKIES_FILE}")
     else:
         print(f"yt-dlp cookies file not found: {COOKIES_FILE}")
-
     return opts
 
 
@@ -118,7 +111,6 @@ DOWNLOAD_OPTS_BASE = {
 def short_error_text(error: Exception) -> str:
     text = str(error).strip()
     text = re.sub(r"\s+", " ", text)
-
     if "Sign in to confirm" in text or "not a bot" in text:
         return (
             "YouTube требует cookies: Sign in to confirm you’re not a bot. "
@@ -126,13 +118,10 @@ def short_error_text(error: Exception) -> str:
             "Проверь /debug: cookies.txt exists должен быть True, size больше 0, "
             "или YTDLP_COOKIES_B64 должен быть set=True."
         )
-
     if "ffmpeg" in text.lower():
         return f"Ошибка ffmpeg: {text[:700]}"
-
     if "Unsupported URL" in text:
         return f"Неподдерживаемая ссылка: {text[:700]}"
-
     return text[:900] if text else repr(error)
 
 
@@ -147,7 +136,6 @@ async def search_all(query: str, limit: int = 10) -> list[dict]:
     def _search():
         results = []
         search_opts = build_ytdlp_opts(SEARCH_OPTS_BASE)
-
         with yt_dlp.YoutubeDL(search_opts) as ydl:
             try:
                 yt_info = ydl.extract_info(f"ytsearch{limit}:{query}", download=False)
@@ -160,7 +148,6 @@ async def search_all(query: str, limit: int = 10) -> list[dict]:
             except Exception as e:
                 print("YOUTUBE SEARCH ERROR:", repr(e))
                 traceback.print_exc()
-
             try:
                 sc_info = ydl.extract_info(f"scsearch{limit}:{query}", download=False)
                 for entry in sc_info.get("entries", []) or []:
@@ -172,7 +159,6 @@ async def search_all(query: str, limit: int = 10) -> list[dict]:
             except Exception as e:
                 print("SOUNDCLOUD SEARCH ERROR:", repr(e))
                 traceback.print_exc()
-
         seen = set()
         unique = []
         for r in results:
@@ -180,7 +166,6 @@ async def search_all(query: str, limit: int = 10) -> list[dict]:
                 seen.add(r["url"])
                 unique.append(r)
         return unique
-
     return await asyncio.to_thread(_search)
 
 
@@ -188,32 +173,25 @@ async def download_audio(url: str) -> tuple[str | None, str | None, str | None]:
     def _download():
         try:
             download_opts = build_ytdlp_opts(DOWNLOAD_OPTS_BASE)
-
             with yt_dlp.YoutubeDL(download_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
-
             if not info:
                 return None, None, "yt-dlp не вернул информацию о треке."
-
             video_id = info.get("id")
             title = info.get("title", "Трек")
             if not video_id:
                 return None, title, "yt-dlp не вернул id трека."
-
             mp3_path = DOWNLOAD_DIR / f"{video_id}.mp3"
             if mp3_path.exists():
                 return str(mp3_path), title, None
-
             for f in DOWNLOAD_DIR.glob(f"{video_id}*"):
                 if f.suffix == ".mp3":
                     return str(f), title, None
-
             return None, title, f"Файл не найден после скачивания. Папка: {DOWNLOAD_DIR}"
         except Exception as e:
             print("DOWNLOAD ERROR:", repr(e))
             traceback.print_exc()
             return None, None, short_error_text(e)
-
     return await asyncio.to_thread(_download)
 
 
@@ -222,7 +200,6 @@ def build_page_keyboard(tracks: list, page: int = 0, per_page: int = 10) -> Inli
     start = page * per_page
     end = start + per_page
     page_tracks = tracks[start:end]
-
     buttons = []
     for i, track in enumerate(page_tracks, start=start):
         buttons.append([
@@ -231,7 +208,6 @@ def build_page_keyboard(tracks: list, page: int = 0, per_page: int = 10) -> Inli
                 callback_data=f"dl_{i}",
             )
         ])
-
     nav = []
     if page > 0:
         nav.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"page_{page - 1}"))
@@ -239,7 +215,6 @@ def build_page_keyboard(tracks: list, page: int = 0, per_page: int = 10) -> Inli
         nav.append(InlineKeyboardButton(text="Вперёд ➡️", callback_data=f"page_{page + 1}"))
     if nav:
         buttons.append(nav)
-
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -263,19 +238,16 @@ async def handle_message(message: Message):
     text = message.text.strip()
     if not text:
         return await message.answer("Введи название трека или ссылку.")
-
     if is_url(text):
         state = await message.answer("⏳ Скачиваю по ссылке...")
         path, title, error = await download_audio(text)
         if not path:
             return await state.edit_text(f"❌ Не удалось скачать.\n\nПричина: {error}")
         return await _send_and_clean(message.chat.id, path, state, title)
-
     await message.answer(f"🔍 Ищу везде: {text}...")
     tracks = await search_all(text, limit=10)
     if not tracks:
         return await message.answer("😔 Ничего не найдено.")
-
     search_results[message.chat.id] = tracks
     current_page[message.chat.id] = 0
     await message.answer(
@@ -288,7 +260,6 @@ async def handle_message(message: Message):
 async def handle_callback(callback: CallbackQuery):
     chat_id = callback.message.chat.id
     data = callback.data
-
     if data.startswith("dl_"):
         tracks = search_results.get(chat_id)
         if not tracks:
@@ -299,7 +270,6 @@ async def handle_callback(callback: CallbackQuery):
             return await callback.answer("Ошибка индекса.")
         if idx < 0 or idx >= len(tracks):
             return await callback.answer("Трек не найден.")
-
         url = tracks[idx]["url"]
         await callback.answer()
         state = await callback.message.answer("⏳ Скачиваю...")
@@ -307,7 +277,6 @@ async def handle_callback(callback: CallbackQuery):
         if not path:
             return await state.edit_text(f"❌ Не удалось скачать трек.\n\nПричина: {error}")
         return await _send_and_clean(chat_id, path, state, title)
-
     elif data.startswith("page_"):
         try:
             page = int(data[5:])
@@ -329,7 +298,6 @@ async def _send_and_clean(chat_id: int, file_path: str, status_msg: Message, tit
         size = os.path.getsize(file_path)
     except OSError:
         return await status_msg.edit_text("❌ Файл недоступен.")
-
     if size > 45 * 1024 * 1024:
         await status_msg.edit_text("⚠️ Файл слишком большой (>45 МБ).")
         try:
@@ -337,7 +305,6 @@ async def _send_and_clean(chat_id: int, file_path: str, status_msg: Message, tit
         except OSError:
             pass
         return
-
     try:
         await bot.send_audio(chat_id, FSInputFile(file_path), title=title)
         await status_msg.delete()
@@ -363,7 +330,6 @@ async def main():
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
     print(f"Healthcheck на порту {port}")
-
     await dp.start_polling(bot)
 
 
